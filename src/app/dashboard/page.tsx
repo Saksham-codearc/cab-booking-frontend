@@ -1,23 +1,33 @@
-
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import GoogleMap from "@/components/GoogleMap";
+import {
+  cancelRide,
+  createRide,
+  getEstimate,
+  listRides,
+  type Ride,
+  type RideType,
+  type TripEstimate,
+} from "@/lib/api";
 
+const RIDE_OPTIONS: Array<{ value: RideType; label: string; blurb: string }> = [
+  { value: "standard", label: "Ride Standard", blurb: "Everyday cars" },
+  { value: "premium", label: "Ride Premium", blurb: "Newer, comfier cars" },
+  { value: "xl", label: "Ride XL", blurb: "Up to 6 seats" },
+];
 
-interface Ride {
-  id: string;
-  pickup_address: string;
-  dropoff_address: string;
-  vehicle_type: string;
-  estimated_fare: number | string;
-  currency: string;
-  status: string;
-  requested_at: string;
-}
-
+const STATUS_STYLES: Record<string, string> = {
+  requested: "border-cyan-800 bg-cyan-950 text-cyan-300",
+  accepted: "border-blue-800 bg-blue-950 text-blue-300",
+  arrived: "border-indigo-800 bg-indigo-950 text-indigo-300",
+  in_progress: "border-amber-800 bg-amber-950 text-amber-300",
+  completed: "border-emerald-800 bg-emerald-950 text-emerald-300",
+  cancelled: "border-red-800 bg-red-950 text-red-300",
+};
 
 export default function DashboardPage() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -30,76 +40,16 @@ export default function DashboardPage() {
 
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
-  const [rideType, setRideType] = useState("standard");
+  const [rideType, setRideType] = useState<RideType>("standard");
+  const [estimate, setEstimate] = useState<TripEstimate | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
+
   const [message, setMessage] = useState("");
-
   const [loading, setLoading] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  
-async function handleBooking(event: React.FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  setMessage("");
-
-  if (!pickup.trim() || !destination.trim()) {
-    setMessage("Please enter both pickup and destination.");
-    return;
-  }
-
-  if (pickup.trim().toLowerCase() === destination.trim().toLowerCase()) {
-    setMessage("Pickup and destination must be different.");
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    const token = await getToken();
-
-    if (!token) {
-      setMessage("Your session could not be verified. Please sign in again.");
-      return;
-    }
-
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-
-    const response = await fetch(`${apiUrl}/api/rides`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        pickup: pickup.trim(),
-        destination: destination.trim(),
-        rideType,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      setMessage(result.message || "Could not create your ride request.");
-      return;
-    }
-
-    setMessage(`Ride requested successfully! Ride ID: ${result.ride.id}`);
-  } catch (error) {
-    console.error("Booking request failed:", error);
-    setMessage("Could not connect to the booking server. Check that the backend is running.");
-  } finally {
-    setLoading(false);
-  }
-}
-
-  
-useEffect(() => {
-  if (!isLoaded || !isSignedIn) {
-    return;
-  }
-
-  let cancelled = false;
-
-  async function loadRides() {
+  const loadRides = useCallback(async () => {
     setRidesLoading(true);
     setRidesError("");
 
@@ -110,47 +60,168 @@ useEffect(() => {
         throw new Error("Please sign in again to view your rides.");
       }
 
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-
-      const response = await fetch(`${apiUrl}/api/rides`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Could not load ride history.");
-      }
-
-      if (!cancelled) {
-        setRides(result.rides ?? []);
-      }
+      const { rides: next } = await listRides(token);
+      setRides(next);
     } catch (error) {
-      if (!cancelled) {
-        setRidesError(
-          error instanceof Error
-            ? error.message
-            : "Could not load ride history."
-        );
-      }
+      setRidesError(
+        error instanceof Error ? error.message : "Could not load ride history."
+      );
     } finally {
-      if (!cancelled) {
-        setRidesLoading(false);
+      setRidesLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) {
+      return;
+    }
+
+    // Deferred a tick: keeps the state updates out of the synchronous effect body.
+    const timer = setTimeout(() => {
+      void loadRides();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isLoaded, isSignedIn, loadRides]);
+
+  // Debounced fare estimate whenever both locations look usable.
+  useEffect(() => {
+    const trimmedPickup = pickup.trim();
+    const trimmedDestination = destination.trim();
+
+    if (
+      !isSignedIn ||
+      !trimmedPickup ||
+      !trimmedDestination ||
+      trimmedPickup.toLowerCase() === trimmedDestination.toLowerCase()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      if (cancelled) {
+        return;
       }
+
+      setEstimating(true);
+      setEstimateError("");
+
+      try {
+        const token = await getToken();
+        const next = await getEstimate(token, trimmedPickup, trimmedDestination);
+
+        if (!cancelled) {
+          setEstimate(next);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setEstimate(null);
+          setEstimateError(
+            error instanceof Error
+              ? error.message
+              : "Could not estimate this trip."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setEstimating(false);
+        }
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pickup, destination, isSignedIn, getToken]);
+
+  function handlePickupChange(value: string) {
+    setPickup(value);
+
+    if (!value.trim() || !destination.trim()) {
+      setEstimate(null);
+      setEstimateError("");
     }
   }
 
-  void loadRides();
+  function handleDestinationChange(value: string) {
+    setDestination(value);
 
-  return () => {
-    cancelled = true;
-  };
-}, [isLoaded, isSignedIn, getToken]);
+    if (!value.trim() || !pickup.trim()) {
+      setEstimate(null);
+      setEstimateError("");
+    }
+  }
 
+  async function handleBooking(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
 
+    const trimmedPickup = pickup.trim();
+    const trimmedDestination = destination.trim();
+
+    if (!trimmedPickup || !trimmedDestination) {
+      setMessage("Please enter both pickup and destination.");
+      return;
+    }
+
+    if (trimmedPickup.toLowerCase() === trimmedDestination.toLowerCase()) {
+      setMessage("Pickup and destination must be different.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const token = await getToken();
+
+      if (!token) {
+        setMessage("Your session could not be verified. Please sign in again.");
+        return;
+      }
+
+      const ride = await createRide(token, {
+        pickup: trimmedPickup,
+        destination: trimmedDestination,
+        rideType,
+      });
+
+      setMessage(`Ride requested successfully! Ride ID: ${ride.id}`);
+      setPickup("");
+      setDestination("");
+      setEstimate(null);
+      await loadRides();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create your ride request."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCancel(id: string) {
+    setCancellingId(id);
+    setMessage("");
+
+    try {
+      const token = await getToken();
+      const ride = await cancelRide(token, id);
+
+      setMessage(`Ride ${ride.id.slice(0, 8)}… cancelled.`);
+      await loadRides();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not cancel the ride."
+      );
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   if (!isLoaded) {
     return (
@@ -227,7 +298,7 @@ useEffect(() => {
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl sm:p-8">
           <h2 className="text-2xl font-bold">Book a ride</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Enter your trip details to get started.
+            Enter your trip details to see live fares.
           </p>
 
           <form onSubmit={handleBooking} className="mt-7 space-y-5">
@@ -241,7 +312,7 @@ useEffect(() => {
               <input
                 id="pickup"
                 value={pickup}
-                onChange={(event) => setPickup(event.target.value)}
+                onChange={(event) => handlePickupChange(event.target.value)}
                 placeholder="e.g. Connaught Place, Delhi"
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-cyan-400"
                 required
@@ -258,7 +329,7 @@ useEffect(() => {
               <input
                 id="destination"
                 value={destination}
-                onChange={(event) => setDestination(event.target.value)}
+                onChange={(event) => handleDestinationChange(event.target.value)}
                 placeholder="e.g. India Gate, Delhi"
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-cyan-400"
                 required
@@ -266,22 +337,70 @@ useEffect(() => {
             </div>
 
             <div>
-              <label
-                htmlFor="rideType"
-                className="mb-2 block text-sm font-medium"
-              >
-                Choose your ride
-              </label>
-              <select
-                id="rideType"
-                value={rideType}
-                onChange={(event) => setRideType(event.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-cyan-400"
-              >
-                <option value="standard">Ride Standard</option>
-                <option value="premium">Ride Premium</option>
-                <option value="xl">Ride XL</option>
-              </select>
+              <p className="mb-2 text-sm font-medium">Choose your ride</p>
+
+              {estimating && (
+                <p className="text-sm text-slate-400">Estimating fare…</p>
+              )}
+
+              {estimateError && (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-red-800 bg-red-950 p-3 text-sm text-red-200"
+                >
+                  {estimateError}
+                </p>
+              )}
+
+              {estimate && (
+                <>
+                  <p className="mb-3 text-xs text-slate-400">
+                    {estimate.distanceKm} km · ~{estimate.durationMin} min
+                    {estimate.source === "heuristic" && (
+                      <span className="ml-1 text-slate-500">
+                        (approximate estimate)
+                      </span>
+                    )}
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {RIDE_OPTIONS.map((option) => {
+                      const selected = option.value === rideType;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setRideType(option.value)}
+                          aria-pressed={selected}
+                          className={`rounded-xl border p-3 text-left transition ${
+                            selected
+                              ? "border-cyan-400 bg-slate-950 ring-2 ring-cyan-400"
+                              : "border-slate-700 bg-slate-950 hover:border-slate-500"
+                          }`}
+                        >
+                          <span className="block text-sm font-semibold">
+                            {option.label}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-400">
+                            {option.blurb}
+                          </span>
+                          <span className="mt-2 block font-bold text-cyan-300">
+                            {estimate.currency}{" "}
+                            {estimate.fares[option.value].toFixed(2)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {!estimate && !estimating && !estimateError && (
+                <p className="text-xs text-slate-500">
+                  Fare estimates appear once you enter both locations.
+                </p>
+              )}
             </div>
 
             {message && (
@@ -303,81 +422,98 @@ useEffect(() => {
           </form>
 
           <p className="mt-4 text-xs leading-5 text-slate-500">
-            Ride requests, fare calculation, and driver matching will be
-            connected to the backend next.
+            Fares are calculated on the server. Driver matching is coming next.
           </p>
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 lg:col-span-2">
-  <h2 className="mb-4 text-xl font-bold">Explore the map</h2>
-  <GoogleMap />
-  </section>
+          <h2 className="mb-4 text-xl font-bold">Explore the map</h2>
+          <GoogleMap />
+        </section>
 
-         
-<section className="lg:col-span-2">
-  <div className="mb-5 flex items-center justify-between gap-3">
-    <div>
-      <h2 className="text-2xl font-bold">Your rides</h2>
-      <p className="mt-1 text-sm text-slate-400">
-        Your recent ride requests and their status.
-      </p>
-    </div>
-    <span className="rounded-full bg-slate-800 px-3 py-1 text-sm">
-      {rides.length} rides
-    </span>
-  </div>
-
-  {ridesLoading ? (
-    <p className="text-slate-400">Loading your rides...</p>
-  ) : ridesError ? (
-    <p role="alert" className="rounded-xl bg-red-950 p-4 text-red-200">
-      {ridesError}
-    </p>
-  ) : rides.length === 0 ? (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
-      No rides yet. Book your first ride above.
-    </div>
-  ) : (
-    <div className="space-y-4">
-      {rides.map((ride) => (
-        <article
-          key={ride.id}
-          className="rounded-xl border border-slate-800 bg-slate-900 p-5"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="font-semibold capitalize">
-              {ride.vehicle_type} ride
-            </span>
-            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs capitalize">
-              {ride.status.replace("_", " ")}
+        <section className="lg:col-span-2">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold">Your rides</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Your recent ride requests and their status.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-800 px-3 py-1 text-sm">
+              {rides.length} rides
             </span>
           </div>
 
-          <div className="mt-4 space-y-3">
-            <p>
-              <span className="text-cyan-400">● </span>
-              {ride.pickup_address}
+          {ridesLoading ? (
+            <p className="text-slate-400">Loading your rides...</p>
+          ) : ridesError ? (
+            <p role="alert" className="rounded-xl bg-red-950 p-4 text-red-200">
+              {ridesError}
             </p>
-            <p>
-              <span className="text-orange-400">● </span>
-              {ride.dropoff_address}
-            </p>
-          </div>
+          ) : rides.length === 0 ? (
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
+              No rides yet. Book your first ride above.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {rides.map((ride) => (
+                <article
+                  key={ride.id}
+                  className="rounded-xl border border-slate-800 bg-slate-900 p-5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="font-semibold capitalize">
+                      {ride.vehicle_type} ride
+                    </span>
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs capitalize ${
+                        STATUS_STYLES[ride.status] ??
+                        "border-slate-700 bg-slate-800 text-slate-300"
+                      }`}
+                    >
+                      {ride.status.replace("_", " ")}
+                    </span>
+                  </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-4 text-sm">
-            <span className="text-slate-400">
-              {new Date(ride.requested_at).toLocaleString()}
-            </span>
-            <span className="font-semibold">
-              {ride.currency} {Number(ride.estimated_fare).toFixed(2)}
-            </span>
-          </div>
-        </article>
-      ))}
-    </div>
-  )}
-</section>
+                  <div className="mt-4 space-y-3">
+                    <p>
+                      <span className="text-cyan-400">● </span>
+                      {ride.pickup_address}
+                    </p>
+                    <p>
+                      <span className="text-orange-400">● </span>
+                      {ride.dropoff_address}
+                    </p>
+                  </div>
 
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-4 text-sm">
+                    <span className="text-slate-400">
+                      {new Date(ride.requested_at).toLocaleString()}
+                    </span>
+
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold">
+                        {ride.currency}{" "}
+                        {Number(ride.estimated_fare).toFixed(2)}
+                      </span>
+
+                      {ride.status === "requested" && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancel(ride.id)}
+                          disabled={cancellingId === ride.id}
+                          className="rounded-lg border border-red-800 px-3 py-1.5 text-red-300 transition hover:bg-red-950 disabled:opacity-50"
+                        >
+                          {cancellingId === ride.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
