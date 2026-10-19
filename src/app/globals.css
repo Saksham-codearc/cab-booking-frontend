@@ -96,8 +96,8 @@
 }
 
 body {
-  background-color: var(--color-ink-50);
-  color: var(--color-ink-900);
+  background-color: #020617; /* slate-950 — matches the dark app shell */
+  color: var(--color-ink-50);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
@@ -108,7 +108,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-ink-900);
+  outline: 2px solid var(--color-brand-400);
   outline-offset: 2px;
 }
 

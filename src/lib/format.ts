@@ -1,37 +1,35 @@
-/** Formats an amount using Indian digit grouping, e.g. 149 -> "₹149". */
-export function formatMoney(
-  amount: number | string,
-  currency = "INR"
-): string {
-  const value = typeof amount === "string" ? Number(amount) : amount;
-
-  if (!Number.isFinite(value)) {
-    return "—";
-  }
-
-  try {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(value);
-  } catch {
-    return `${currency} ${Math.round(value)}`;
-  }
+export function formatCurrency(value: number | string | null | undefined, currency = "INR") {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
-/** Compact local timestamp, e.g. "19 Oct, 04:35 pm". */
-export function formatDateTime(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+export function formatDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
+
+export function statusLabel(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export const rideTypeLabels: Record<string, string> = {
+  standard: "Ride Standard",
+  premium: "Ride Premium",
+  xl: "Ride XL",
+};
+
+export const rideTypeDescriptions: Record<string, string> = {
+  standard: "Everyday cars, best value",
+  premium: "Comfortable sedans",
+  xl: "Extra space for groups",
+};

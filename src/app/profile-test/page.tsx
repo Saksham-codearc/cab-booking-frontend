@@ -26,7 +26,8 @@ export default function ProfileTestPage() {
 
       const result = await apiFetch<Record<string, unknown>>(
         "/api/profile/sync",
-        { method: "POST", token }
+        token,
+        { method: "POST" }
       );
 
       setMessage(JSON.stringify(result, null, 2));

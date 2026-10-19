@@ -1,397 +1,181 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 
+import ActiveRideCard from "@/components/ActiveRideCard";
 import AppHeader from "@/components/AppHeader";
-import BottomNav from "@/components/BottomNav";
-import GoogleMap from "@/components/GoogleMap";
-import LocationField from "@/components/LocationField";
-import RideHistory from "@/components/RideHistory";
-import ServicePicker from "@/components/ServicePicker";
-import {
-  ArrowRightIcon,
-  BoltIcon,
-  ShieldIcon,
-  WalletIcon,
-} from "@/components/icons";
-import {
-  cancelRide,
-  createRide,
-  getEstimate,
-  listRides,
-  type Ride,
-  type RideType,
-  type TripEstimate,
-} from "@/lib/api";
+import BookingForm from "@/components/BookingForm";
+import MapView, { type MapPoint } from "@/components/MapView";
+import type { PlaceValue } from "@/components/PlaceInput";
+import RideCard from "@/components/RideCard";
+import { apiFetch } from "@/lib/api";
+import type { Ride } from "@/lib/types";
 
-const RIDE_LABELS: Record<RideType, string> = {
-  standard: "Ride Standard",
-  premium: "Ride Premium",
-  xl: "Ride XL",
-};
-
-const HIGHLIGHTS = [
-  {
-    Icon: BoltIcon,
-    title: "Fast booking",
-    copy: "Two fields and you are done.",
-  },
-  {
-    Icon: ShieldIcon,
-    title: "Upfront fares",
-    copy: "Priced on the server, never guessed.",
-  },
-  {
-    Icon: WalletIcon,
-    title: "Clear history",
-    copy: "Every trip, saved in one place.",
-  },
-];
+function toMapPoint(place: PlaceValue): MapPoint | null {
+  if (place.lat === undefined || place.lng === undefined) return null;
+  return { lat: place.lat, lng: place.lng, label: place.address };
+}
 
 export default function DashboardPage() {
-  const { isLoaded, isSignedIn, user } = useUser();
   const { getToken } = useAuth();
 
-  const [rides, setRides] = useState<Ride[]>([]);
-  const [ridesLoading, setRidesLoading] = useState(true);
-  const [ridesError, setRidesError] = useState("");
-
-  const [pickup, setPickup] = useState("");
-  const [destination, setDestination] = useState("");
-  const [rideType, setRideType] = useState<RideType>("standard");
-  const [estimate, setEstimate] = useState<TripEstimate | null>(null);
-  const [estimating, setEstimating] = useState(false);
-  const [estimateError, setEstimateError] = useState("");
-
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [activeRide, setActiveRide] = useState<Ride | null>(null);
+  const [recentRides, setRecentRides] = useState<Ride[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [pickup, setPickup] = useState<MapPoint | null>(null);
+  const [dropoff, setDropoff] = useState<MapPoint | null>(null);
 
   const loadRides = useCallback(async () => {
-    setRidesLoading(true);
-    setRidesError("");
-
     try {
       const token = await getToken();
+      if (!token) return;
 
-      if (!token) {
-        throw new Error("Please sign in again to view your rides.");
-      }
+      const [activeData, listData] = await Promise.all([
+        apiFetch<{ ride: Ride | null }>("/api/rides/active", token),
+        apiFetch<{ rides: Ride[] }>("/api/rides?limit=5", token),
+      ]);
 
-      const { rides: next } = await listRides(token);
-      setRides(next);
-    } catch (error) {
-      setRidesError(
-        error instanceof Error ? error.message : "Could not load ride history."
-      );
-    } finally {
-      setRidesLoading(false);
-    }
-  }, [getToken]);
-
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) {
-      return;
-    }
-
-    // Deferred a tick so state updates stay out of the synchronous effect body.
-    const timer = setTimeout(() => {
-      void loadRides();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [isLoaded, isSignedIn, loadRides]);
-
-  // Debounced fare estimate whenever both locations look usable.
-  useEffect(() => {
-    const trimmedPickup = pickup.trim();
-    const trimmedDestination = destination.trim();
-
-    if (
-      !isSignedIn ||
-      !trimmedPickup ||
-      !trimmedDestination ||
-      trimmedPickup.toLowerCase() === trimmedDestination.toLowerCase()
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const timer = setTimeout(async () => {
-      if (cancelled) {
-        return;
-      }
-
-      setEstimating(true);
-      setEstimateError("");
-
-      try {
-        const token = await getToken();
-        const next = await getEstimate(token, trimmedPickup, trimmedDestination);
-
-        if (!cancelled) {
-          setEstimate(next);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setEstimate(null);
-          setEstimateError(
-            error instanceof Error
-              ? error.message
-              : "Could not estimate this trip."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setEstimating(false);
-        }
-      }
-    }, 500);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [pickup, destination, isSignedIn, getToken]);
-
-  function handlePickupChange(value: string) {
-    setPickup(value);
-
-    if (!value.trim() || !destination.trim()) {
-      setEstimate(null);
-      setEstimateError("");
-    }
-  }
-
-  function handleDestinationChange(value: string) {
-    setDestination(value);
-
-    if (!value.trim() || !pickup.trim()) {
-      setEstimate(null);
-      setEstimateError("");
-    }
-  }
-
-  function handleSwap() {
-    setPickup(destination);
-    setDestination(pickup);
-  }
-
-  async function handleBooking(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-
-    const trimmedPickup = pickup.trim();
-    const trimmedDestination = destination.trim();
-
-    if (!trimmedPickup || !trimmedDestination) {
-      setMessage("Please enter both pickup and drop locations.");
-      return;
-    }
-
-    if (trimmedPickup.toLowerCase() === trimmedDestination.toLowerCase()) {
-      setMessage("Pickup and drop must be different.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const token = await getToken();
-
-      if (!token) {
-        setMessage("Your session could not be verified. Please sign in again.");
-        return;
-      }
-
-      const ride = await createRide(token, {
-        pickup: trimmedPickup,
-        destination: trimmedDestination,
-        rideType,
-      });
-
-      setMessage(
-        `Ride requested! Booking id ${ride.id.slice(0, 8)} · ${RIDE_LABELS[rideType]}`
-      );
-      setPickup("");
-      setDestination("");
-      setEstimate(null);
-      await loadRides();
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not create your ride request."
+      setActiveRide(activeData.ride ?? null);
+      setRecentRides(listData.rides ?? []);
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not load your rides right now."
       );
     } finally {
       setLoading(false);
     }
-  }
+  }, [getToken]);
 
-  async function handleCancel(id: string) {
-    setCancellingId(id);
-    setMessage("");
+  useEffect(() => {
+    void Promise.resolve().then(() => loadRides());
+  }, [loadRides]);
 
-    try {
-      const token = await getToken();
-      const ride = await cancelRide(token, id);
+  // Keep an in-flight ride fresh without requiring a manual refresh.
+  const hasActiveRide = activeRide !== null;
+  useEffect(() => {
+    if (!hasActiveRide) return;
+    const timer = window.setInterval(() => void loadRides(), 12000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveRide, loadRides]);
 
-      setMessage(`Ride ${ride.id.slice(0, 8)} cancelled.`);
-      await loadRides();
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Could not cancel the ride."
-      );
-    } finally {
-      setCancellingId(null);
-    }
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-ink-50">
-        <p className="animate-soft-pulse text-sm font-semibold text-ink-500">
-          Loading your dashboard…
-        </p>
-      </div>
-    );
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-ink-50 px-6">
-        <div className="card w-full max-w-sm p-6 text-center">
-          <p className="text-sm font-bold">You are signed out</p>
-          <Link href="/sign-in" className="btn-ink mt-4 px-5 py-3 text-sm">
-            Sign in to book
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const firstName = user?.firstName || "rider";
+  const handleRouteChange = useCallback((nextPickup: PlaceValue, nextDropoff: PlaceValue) => {
+    setPickup(toMapPoint(nextPickup));
+    setDropoff(toMapPoint(nextDropoff));
+  }, []);
 
   return (
-    <div className="min-h-screen bg-ink-50 pb-24 lg:pb-12">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-6xl px-4 py-5 lg:px-8 lg:py-8">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start">
-          <form
-            onSubmit={handleBooking}
-            className="card p-5 lg:sticky lg:top-24"
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 pb-16 sm:px-6 lg:py-10">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-400">
+              Book a ride
+            </p>
+            <h1 className="mt-1.5 text-3xl font-extrabold tracking-tight sm:text-4xl">
+              Where are you headed?
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+              Set your pickup and drop-off, compare rides, and see the fare before
+              you confirm. Fares are calculated on the server.
+            </p>
+          </div>
+
+          <Link
+            href="/rides/history"
+            className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-white"
           >
-            <div className="flex items-center justify-between gap-3">
-              <h1 className="text-xl font-extrabold tracking-tight">
-                Book a ride
-              </h1>
-              <span className="rounded-full bg-brand-500 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide">
-                Upfront fare
-              </span>
-            </div>
+            Ride history
+          </Link>
+        </div>
 
-            <p className="mt-1 text-sm text-ink-500">
-              Hey {firstName}, where are you heading today?
-            </p>
-
-            <div className="mt-5">
-              <LocationField
-                pickup={pickup}
-                destination={destination}
-                onPickupChange={handlePickupChange}
-                onDestinationChange={handleDestinationChange}
-                onSwap={handleSwap}
-                disabled={loading}
-              />
-            </div>
-
-            <div className="mt-5">
-              <ServicePicker
-                rideType={rideType}
-                onSelect={setRideType}
-                estimate={estimate}
-                estimating={estimating}
-                disabled={loading}
-              />
-            </div>
-
-            {estimateError && (
-              <p
-                role="alert"
-                className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700"
-              >
-                {estimateError}
-              </p>
-            )}
-
-            {message && (
-              <p
-                role="status"
-                className="mt-4 rounded-2xl border border-brand-300 bg-brand-50 p-3 text-sm font-medium"
-              >
-                {message}
-              </p>
-            )}
-
+        {error && (
+          <div
+            role="alert"
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-800/60 bg-amber-950/40 p-4 text-sm text-amber-200"
+          >
+            <span>{error}</span>
             <button
-              type="submit"
-              disabled={loading}
-              className="btn-brand mt-5 w-full px-5 py-4 text-base disabled:opacity-60"
+              type="button"
+              onClick={() => void loadRides()}
+              className="rounded-lg border border-amber-700 px-3 py-1.5 text-xs font-semibold transition hover:bg-amber-900/40"
             >
-              {loading ? "Booking…" : `Book ${RIDE_LABELS[rideType]}`}
-              {!loading && <ArrowRightIcon className="h-5 w-5" />}
+              Try again
             </button>
+          </div>
+        )}
 
-            <p className="mt-3 text-center text-[11px] text-ink-400">
-              Fares are calculated on our servers — no surprises at the end.
-            </p>
-          </form>
+        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-start">
+          <section
+            id="book"
+            className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6"
+          >
+            <BookingForm onCreated={() => void loadRides()} onRouteChange={handleRouteChange} />
+          </section>
 
           <div className="space-y-6">
-            <section className="card overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                <h2 className="text-sm font-extrabold">Around you</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Delhi NCR
-                </span>
-              </div>
+            {activeRide && <ActiveRideCard ride={activeRide} onChanged={() => void loadRides()} />}
 
-              <GoogleMap />
-            </section>
+            <MapView pickup={pickup} dropoff={dropoff} />
 
-            <RideHistory
-              rides={rides}
-              loading={ridesLoading}
-              error={ridesError}
-              cancellingId={cancellingId}
-              onCancel={handleCancel}
-              onRefresh={() => void loadRides()}
-            />
-
-            <section id="offers" className="grid gap-3 sm:grid-cols-3">
-              {HIGHLIGHTS.map(({ Icon, title, copy }) => (
-                <div
-                  key={title}
-                  className="rounded-3xl border border-ink-200 bg-white p-4"
-                >
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-500 text-ink-900">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <p className="mt-3 text-sm font-bold">{title}</p>
-                  <p className="mt-1 text-xs text-ink-500">{copy}</p>
-                </div>
-              ))}
-            </section>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <h2 className="text-sm font-bold text-slate-200">Booking tips</h2>
+              <ul className="mt-3 space-y-2 text-sm text-slate-400">
+                <li>Pick an address from the suggestions to get an exact fare.</li>
+                <li>Your driver sees the request the moment you confirm it.</li>
+                <li>You can cancel for free until the ride starts.</li>
+              </ul>
+            </div>
           </div>
         </div>
-      </main>
 
-      <BottomNav />
+        <section className="mt-10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-bold tracking-tight">Recent rides</h2>
+            <Link
+              href="/rides/history"
+              className="text-sm font-semibold text-cyan-400 hover:underline"
+            >
+              See all rides
+            </Link>
+          </div>
+
+          {loading ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((item) => (
+                <div
+                  key={item}
+                  className="h-40 animate-pulse rounded-xl border border-slate-800 bg-slate-900"
+                />
+              ))}
+            </div>
+          ) : recentRides.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-6 text-center">
+              <p className="font-semibold text-slate-200">No rides yet</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Book your first ride above and it will show up here.
+              </p>
+              <a
+                href="#book"
+                className="mt-4 inline-flex rounded-xl bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-cyan-300"
+              >
+                Book a ride
+              </a>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {recentRides.map((ride) => (
+                <RideCard key={ride.id} ride={ride} />
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
