@@ -1,5 +1,4 @@
-
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -15,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cab Booking App",
-  description: "Book rides easily and travel with confidence.",
+  title: "RideFlow — book your ride in seconds",
+  description:
+    "Set your pickup and drop, see upfront fares for every ride type, and book your ride in seconds.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#ffd400",
 };
 
 export default function RootLayout({
@@ -28,7 +32,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body
-          className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
+          className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-ink-50`}
         >
           {children}
         </body>
@@ -36,4 +40,3 @@ export default function RootLayout({
     </ClerkProvider>
   );
 }
-

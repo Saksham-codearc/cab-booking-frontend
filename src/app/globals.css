@@ -1,26 +1,128 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  RideFlow design tokens — a Rapido-inspired visual language:
+  high-contrast yellow + ink black, soft white cards, generous radii.
+*/
+@theme {
+  /* Brand yellow */
+  --color-brand-50: #fffbe6;
+  --color-brand-100: #fff3bf;
+  --color-brand-200: #ffe680;
+  --color-brand-300: #ffdb4d;
+  --color-brand-400: #ffd626;
+  --color-brand-500: #ffd400;
+  --color-brand-600: #f2c200;
+  --color-brand-700: #d9ae00;
+  --color-brand-800: #a88500;
+
+  /* Ink (neutral ramp) */
+  --color-ink-50: #fafafa;
+  --color-ink-100: #f4f4f5;
+  --color-ink-200: #e7e7e9;
+  --color-ink-300: #d4d4d8;
+  --color-ink-400: #a1a1aa;
+  --color-ink-500: #71717a;
+  --color-ink-700: #3f3f46;
+  --color-ink-900: #111111;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-4xl: 2rem;
+  --radius-5xl: 2.5rem;
+
+  --shadow-card: 0 1px 2px rgba(17, 17, 17, 0.04),
+    0 12px 32px -16px rgba(17, 17, 17, 0.18);
+  --shadow-pop: 0 18px 50px -24px rgba(17, 17, 17, 0.35);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Shared surface used across booking panels and cards. */
+@utility card {
+  background-color: #ffffff;
+  border: 1px solid var(--color-ink-200);
+  border-radius: var(--radius-4xl);
+  box-shadow: var(--shadow-card);
+}
+
+/* Primary action: black text on brand yellow, Rapido style. */
+@utility btn-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--color-brand-500);
+  color: var(--color-ink-900);
+  font-weight: 700;
+  transition: background-color 150ms ease, transform 150ms ease;
+
+  &:hover {
+    background-color: var(--color-brand-400);
+  }
+
+  &:active {
+    transform: scale(0.985);
+  }
+}
+
+@utility btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--color-ink-900);
+  color: #ffffff;
+  font-weight: 700;
+  transition: opacity 150ms ease, transform 150ms ease;
+
+  &:hover {
+    opacity: 0.9;
+  }
+
+  &:active {
+    transform: scale(0.985);
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-ink-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--color-brand-500);
+  color: var(--color-ink-900);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink-900);
+  outline-offset: 2px;
+}
+
+@keyframes rideflow-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-soft-pulse {
+  animation: rideflow-pulse 1.6s ease-in-out infinite;
 }

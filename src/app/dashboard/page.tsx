@@ -1,9 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAuth, useClerk, useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
+
+import AppHeader from "@/components/AppHeader";
+import BottomNav from "@/components/BottomNav";
 import GoogleMap from "@/components/GoogleMap";
+import LocationField from "@/components/LocationField";
+import RideHistory from "@/components/RideHistory";
+import ServicePicker from "@/components/ServicePicker";
+import {
+  ArrowRightIcon,
+  BoltIcon,
+  ShieldIcon,
+  WalletIcon,
+} from "@/components/icons";
 import {
   cancelRide,
   createRide,
@@ -14,24 +26,32 @@ import {
   type TripEstimate,
 } from "@/lib/api";
 
-const RIDE_OPTIONS: Array<{ value: RideType; label: string; blurb: string }> = [
-  { value: "standard", label: "Ride Standard", blurb: "Everyday cars" },
-  { value: "premium", label: "Ride Premium", blurb: "Newer, comfier cars" },
-  { value: "xl", label: "Ride XL", blurb: "Up to 6 seats" },
-];
-
-const STATUS_STYLES: Record<string, string> = {
-  requested: "border-cyan-800 bg-cyan-950 text-cyan-300",
-  accepted: "border-blue-800 bg-blue-950 text-blue-300",
-  arrived: "border-indigo-800 bg-indigo-950 text-indigo-300",
-  in_progress: "border-amber-800 bg-amber-950 text-amber-300",
-  completed: "border-emerald-800 bg-emerald-950 text-emerald-300",
-  cancelled: "border-red-800 bg-red-950 text-red-300",
+const RIDE_LABELS: Record<RideType, string> = {
+  standard: "Ride Standard",
+  premium: "Ride Premium",
+  xl: "Ride XL",
 };
+
+const HIGHLIGHTS = [
+  {
+    Icon: BoltIcon,
+    title: "Fast booking",
+    copy: "Two fields and you are done.",
+  },
+  {
+    Icon: ShieldIcon,
+    title: "Upfront fares",
+    copy: "Priced on the server, never guessed.",
+  },
+  {
+    Icon: WalletIcon,
+    title: "Clear history",
+    copy: "Every trip, saved in one place.",
+  },
+];
 
 export default function DashboardPage() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const { signOut } = useClerk();
   const { getToken } = useAuth();
 
   const [rides, setRides] = useState<Ride[]>([]);
@@ -76,7 +96,7 @@ export default function DashboardPage() {
       return;
     }
 
-    // Deferred a tick: keeps the state updates out of the synchronous effect body.
+    // Deferred a tick so state updates stay out of the synchronous effect body.
     const timer = setTimeout(() => {
       void loadRides();
     }, 0);
@@ -129,7 +149,7 @@ export default function DashboardPage() {
           setEstimating(false);
         }
       }
-    }, 600);
+    }, 500);
 
     return () => {
       cancelled = true;
@@ -155,6 +175,11 @@ export default function DashboardPage() {
     }
   }
 
+  function handleSwap() {
+    setPickup(destination);
+    setDestination(pickup);
+  }
+
   async function handleBooking(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
@@ -163,12 +188,12 @@ export default function DashboardPage() {
     const trimmedDestination = destination.trim();
 
     if (!trimmedPickup || !trimmedDestination) {
-      setMessage("Please enter both pickup and destination.");
+      setMessage("Please enter both pickup and drop locations.");
       return;
     }
 
     if (trimmedPickup.toLowerCase() === trimmedDestination.toLowerCase()) {
-      setMessage("Pickup and destination must be different.");
+      setMessage("Pickup and drop must be different.");
       return;
     }
 
@@ -188,7 +213,9 @@ export default function DashboardPage() {
         rideType,
       });
 
-      setMessage(`Ride requested successfully! Ride ID: ${ride.id}`);
+      setMessage(
+        `Ride requested! Booking id ${ride.id.slice(0, 8)} · ${RIDE_LABELS[rideType]}`
+      );
       setPickup("");
       setDestination("");
       setEstimate(null);
@@ -212,7 +239,7 @@ export default function DashboardPage() {
       const token = await getToken();
       const ride = await cancelRide(token, id);
 
-      setMessage(`Ride ${ride.id.slice(0, 8)}… cancelled.`);
+      setMessage(`Ride ${ride.id.slice(0, 8)} cancelled.`);
       await loadRides();
     } catch (error) {
       setMessage(
@@ -225,188 +252,86 @@ export default function DashboardPage() {
 
   if (!isLoaded) {
     return (
-      <main className="min-h-screen bg-slate-950 p-8 text-white">
-        Loading your dashboard...
-      </main>
+      <div className="grid min-h-screen place-items-center bg-ink-50">
+        <p className="animate-soft-pulse text-sm font-semibold text-ink-500">
+          Loading your dashboard…
+        </p>
+      </div>
     );
   }
 
   if (!isSignedIn) {
     return (
-      <main className="min-h-screen bg-slate-950 p-8 text-white">
-        You are signed out.{" "}
-        <Link className="underline" href="/sign-in">
-          Sign in
-        </Link>
-      </main>
+      <div className="grid min-h-screen place-items-center bg-ink-50 px-6">
+        <div className="card w-full max-w-sm p-6 text-center">
+          <p className="text-sm font-bold">You are signed out</p>
+          <Link href="/sign-in" className="btn-ink mt-4 px-5 py-3 text-sm">
+            Sign in to book
+          </Link>
+        </div>
+      </div>
     );
   }
 
+  const firstName = user?.firstName || "rider";
+
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-5 sm:px-10">
-        <Link href="/" className="text-2xl font-bold tracking-tight">
-          Ride<span className="text-cyan-400">Flow</span>
-        </Link>
+    <div className="min-h-screen bg-ink-50 pb-24 lg:pb-12">
+      <AppHeader />
 
-        <button
-          onClick={() => signOut({ redirectUrl: "/sign-in" })}
-          className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
-        >
-          Sign Out
-        </button>
-      </header>
-
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-10 lg:grid-cols-2 lg:py-16">
-        <section className="flex flex-col justify-center">
-          <p className="mb-3 font-semibold text-cyan-400">
-            YOUR NEXT RIDE STARTS HERE
-          </p>
-
-          <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
-            Where would you
-            <br />
-            like to go?
-          </h1>
-
-          <p className="mt-4 max-w-lg text-slate-400">
-            Welcome, {user.firstName || "Rider"}. Enter your pickup and
-            destination to prepare your next trip.
-          </p>
-
-          <div className="mt-8 grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <p className="text-xl">📍</p>
-              <p className="mt-2 text-sm font-semibold">Pickup</p>
-              <p className="mt-1 text-xs text-slate-400">Choose a location</p>
+      <main className="mx-auto w-full max-w-6xl px-4 py-5 lg:px-8 lg:py-8">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start">
+          <form
+            onSubmit={handleBooking}
+            className="card p-5 lg:sticky lg:top-24"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-xl font-extrabold tracking-tight">
+                Book a ride
+              </h1>
+              <span className="rounded-full bg-brand-500 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide">
+                Upfront fare
+              </span>
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <p className="text-xl">🚘</p>
-              <p className="mt-2 text-sm font-semibold">Ride</p>
-              <p className="mt-1 text-xs text-slate-400">Choose your car</p>
-            </div>
+            <p className="mt-1 text-sm text-ink-500">
+              Hey {firstName}, where are you heading today?
+            </p>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <p className="text-xl">🏁</p>
-              <p className="mt-2 text-sm font-semibold">Destination</p>
-              <p className="mt-1 text-xs text-slate-400">Plan your trip</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl sm:p-8">
-          <h2 className="text-2xl font-bold">Book a ride</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Enter your trip details to see live fares.
-          </p>
-
-          <form onSubmit={handleBooking} className="mt-7 space-y-5">
-            <div>
-              <label
-                htmlFor="pickup"
-                className="mb-2 block text-sm font-medium"
-              >
-                Pickup location
-              </label>
-              <input
-                id="pickup"
-                value={pickup}
-                onChange={(event) => handlePickupChange(event.target.value)}
-                placeholder="e.g. Connaught Place, Delhi"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-cyan-400"
-                required
+            <div className="mt-5">
+              <LocationField
+                pickup={pickup}
+                destination={destination}
+                onPickupChange={handlePickupChange}
+                onDestinationChange={handleDestinationChange}
+                onSwap={handleSwap}
+                disabled={loading}
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="destination"
-                className="mb-2 block text-sm font-medium"
-              >
-                Destination
-              </label>
-              <input
-                id="destination"
-                value={destination}
-                onChange={(event) => handleDestinationChange(event.target.value)}
-                placeholder="e.g. India Gate, Delhi"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-cyan-400"
-                required
+            <div className="mt-5">
+              <ServicePicker
+                rideType={rideType}
+                onSelect={setRideType}
+                estimate={estimate}
+                estimating={estimating}
+                disabled={loading}
               />
             </div>
 
-            <div>
-              <p className="mb-2 text-sm font-medium">Choose your ride</p>
-
-              {estimating && (
-                <p className="text-sm text-slate-400">Estimating fare…</p>
-              )}
-
-              {estimateError && (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-red-800 bg-red-950 p-3 text-sm text-red-200"
-                >
-                  {estimateError}
-                </p>
-              )}
-
-              {estimate && (
-                <>
-                  <p className="mb-3 text-xs text-slate-400">
-                    {estimate.distanceKm} km · ~{estimate.durationMin} min
-                    {estimate.source === "heuristic" && (
-                      <span className="ml-1 text-slate-500">
-                        (approximate estimate)
-                      </span>
-                    )}
-                  </p>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    {RIDE_OPTIONS.map((option) => {
-                      const selected = option.value === rideType;
-
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setRideType(option.value)}
-                          aria-pressed={selected}
-                          className={`rounded-xl border p-3 text-left transition ${
-                            selected
-                              ? "border-cyan-400 bg-slate-950 ring-2 ring-cyan-400"
-                              : "border-slate-700 bg-slate-950 hover:border-slate-500"
-                          }`}
-                        >
-                          <span className="block text-sm font-semibold">
-                            {option.label}
-                          </span>
-                          <span className="mt-1 block text-xs text-slate-400">
-                            {option.blurb}
-                          </span>
-                          <span className="mt-2 block font-bold text-cyan-300">
-                            {estimate.currency}{" "}
-                            {estimate.fares[option.value].toFixed(2)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {!estimate && !estimating && !estimateError && (
-                <p className="text-xs text-slate-500">
-                  Fare estimates appear once you enter both locations.
-                </p>
-              )}
-            </div>
+            {estimateError && (
+              <p
+                role="alert"
+                className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700"
+              >
+                {estimateError}
+              </p>
+            )}
 
             {message && (
               <p
                 role="status"
-                className="rounded-lg border border-cyan-900 bg-cyan-950/50 p-3 text-sm text-cyan-200"
+                className="mt-4 rounded-2xl border border-brand-300 bg-brand-50 p-3 text-sm font-medium"
               >
                 {message}
               </p>
@@ -415,106 +340,58 @@ export default function DashboardPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-cyan-400 px-5 py-3.5 font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60"
+              className="btn-brand mt-5 w-full px-5 py-4 text-base disabled:opacity-60"
             >
-              {loading ? "Preparing..." : "Continue to booking"}
+              {loading ? "Booking…" : `Book ${RIDE_LABELS[rideType]}`}
+              {!loading && <ArrowRightIcon className="h-5 w-5" />}
             </button>
+
+            <p className="mt-3 text-center text-[11px] text-ink-400">
+              Fares are calculated on our servers — no surprises at the end.
+            </p>
           </form>
 
-          <p className="mt-4 text-xs leading-5 text-slate-500">
-            Fares are calculated on the server. Driver matching is coming next.
-          </p>
-        </section>
+          <div className="space-y-6">
+            <section className="card overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                <h2 className="text-sm font-extrabold">Around you</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Delhi NCR
+                </span>
+              </div>
 
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5 lg:col-span-2">
-          <h2 className="mb-4 text-xl font-bold">Explore the map</h2>
-          <GoogleMap />
-        </section>
+              <GoogleMap />
+            </section>
 
-        <section className="lg:col-span-2">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold">Your rides</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Your recent ride requests and their status.
-              </p>
-            </div>
-            <span className="rounded-full bg-slate-800 px-3 py-1 text-sm">
-              {rides.length} rides
-            </span>
-          </div>
+            <RideHistory
+              rides={rides}
+              loading={ridesLoading}
+              error={ridesError}
+              cancellingId={cancellingId}
+              onCancel={handleCancel}
+              onRefresh={() => void loadRides()}
+            />
 
-          {ridesLoading ? (
-            <p className="text-slate-400">Loading your rides...</p>
-          ) : ridesError ? (
-            <p role="alert" className="rounded-xl bg-red-950 p-4 text-red-200">
-              {ridesError}
-            </p>
-          ) : rides.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
-              No rides yet. Book your first ride above.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {rides.map((ride) => (
-                <article
-                  key={ride.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900 p-5"
+            <section id="offers" className="grid gap-3 sm:grid-cols-3">
+              {HIGHLIGHTS.map(({ Icon, title, copy }) => (
+                <div
+                  key={title}
+                  className="rounded-3xl border border-ink-200 bg-white p-4"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="font-semibold capitalize">
-                      {ride.vehicle_type} ride
-                    </span>
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs capitalize ${
-                        STATUS_STYLES[ride.status] ??
-                        "border-slate-700 bg-slate-800 text-slate-300"
-                      }`}
-                    >
-                      {ride.status.replace("_", " ")}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    <p>
-                      <span className="text-cyan-400">● </span>
-                      {ride.pickup_address}
-                    </p>
-                    <p>
-                      <span className="text-orange-400">● </span>
-                      {ride.dropoff_address}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-4 text-sm">
-                    <span className="text-slate-400">
-                      {new Date(ride.requested_at).toLocaleString()}
-                    </span>
-
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold">
-                        {ride.currency}{" "}
-                        {Number(ride.estimated_fare).toFixed(2)}
-                      </span>
-
-                      {ride.status === "requested" && (
-                        <button
-                          type="button"
-                          onClick={() => handleCancel(ride.id)}
-                          disabled={cancellingId === ride.id}
-                          className="rounded-lg border border-red-800 px-3 py-1.5 text-red-300 transition hover:bg-red-950 disabled:opacity-50"
-                        >
-                          {cancellingId === ride.id ? "Cancelling…" : "Cancel"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </article>
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-500 text-ink-900">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <p className="mt-3 text-sm font-bold">{title}</p>
+                  <p className="mt-1 text-xs text-ink-500">{copy}</p>
+                </div>
               ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <BottomNav />
+    </div>
   );
 }
