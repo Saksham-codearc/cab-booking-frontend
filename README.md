@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🚕 RideFlow — Cab Booking Platform
 
-## Getting Started
+A modern cab booking web application built with Next.js, React, TypeScript, and Tailwind CSS. RideFlow provides a responsive interface for riders to book rides, view ride history, and explore driver-related features.
 
-First, run the development server:
+## 🌐 Live Demo
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+**[Open RideFlow](https://cab-booking-frontend-five.vercel.app/)**
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## ✨ Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- 🔐 User authentication with Clerk
+- 📍 Pickup and drop-off address selection using Google Maps
+- 🚘 Multiple ride categories: Standard, Premium, and XL
+- 📋 Ride booking and ride history
+- 👨‍✈️ Driver onboarding interface
+- 📱 Responsive user interface
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🛠️ Tech Stack
 
-## Learn More
+- **Frontend:** Next.js, React, TypeScript
+- **Styling:** Tailwind CSS
+- **Authentication:** Clerk
+- **Maps:** Google Maps JavaScript API
+- **Deployment:** Vercel
 
-To learn more about Next.js, take a look at the following resources:
+## ⚙️ Run Locally
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Clone the repository:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   ```bash
+   git clone https://github.com/Saksham-codearc/cab-booking-frontend.git
+   cd cab-booking-frontend
+   ```
 
-## Deploy on Vercel
+2. Install dependencies:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```bash
+   npm install
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+3. Create a `.env.local` file using `.env.example` as a reference. Configure the required environment variables without committing secrets.
+
+4. Start the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open `http://localhost:3000` in your browser.
+
+## 🔗 Backend
+
+Backend repository: [cab-booking-backend](https://github.com/Saksham-codearc/cab-booking-backend)
+
+## 👨‍💻 Developer
+
+**Saksham Rana**
+
+
